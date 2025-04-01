@@ -53,8 +53,21 @@ const authMiddleware = (req, res, next) => {
 
 // Endpoint protegido
 app.get('/secure-data', authMiddleware, (req, res) => {
-    res.json({ message: `Hola ${req.user.username}, accediste a datos protegidos` });
+    const user = usersDB.find(u => u.username === req.user.username);
+
+    if (!user) {
+        return res.status(404).json({ message: "Usuario no encontrado" });
+    }
+
+    res.json({
+        message: `Hola ${req.user.username}, accediste a datos protegidos`,
+        userData: {
+            username: user.username,
+            passwordHashed: user.password 
+        }
+    });
 });
+
 
 
 const PORT = process.env.PORT || 3000;
