@@ -1,47 +1,61 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto-js');
+const helmet = require('helmet');
+const cors = require('cors');
+
 const app = express();
 app.use(express.json());
-let users = [];
+app.use(helmet());
+app.use(cors());
 
+const usersDB = [];
+
+//verificar que la API está corriendo
 app.get('/', (req, res) => {
-    res.send('API funcionando correctamente');
+    res.json({ message: 'API corriendo correctamente' });
 });
 
-app.get('/users', (req, res) => {
-    res.json(users);
-});
-
-app.post('/users', (req, res) => {
-    users.push(req.body);
-    res.status(201).json({ message: 'Usuario agregado' });
-});
-
-const usersDB = [{ username: "admin", password: "1234" }];
-app.post('/login', (req, res) => {
+// Registrar usuarios con contraseña hasheada
+app.post('/users', async (req, res) => {
     const { username, password } = req.body;
-    const user = usersDB.find(u => u.username === username &&
-        u.password === password);
-    if (!user) return res.status(401).json({
-        message:
-            'Credenciales incorrectas'
-    });
-    res.json({ message: 'Autenticación exitosa' });
+    if (usersDB.find(u => u.username === username)) {
+        return res.status(400).json({ message: 'Usuario ya existe' });
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    usersDB.push({ username, password: hashedPassword });
+    res.status(201).json({ message: 'Usuario registrado con éxito' });
 });
 
-const authMiddleware = (req, res, next) => {
-    const { username, password } = req.headers;
-    const user = usersDB.find(u => u.username === username &&
-        u.password === password);
-    if (!user) return res.status(403).json({
-        message: 'Acceso denegado'
-    });
-    next();
-};
-app.get('/secure-data', authMiddleware, (req, res) => {
-    res.json({ message: 'Accediste a datos protegidos' });
+// Login con JWT
+app.post('/login', async (req, res) => {
+    const { username, password } = req.body;
+    const user = usersDB.find(u => u.username === username);
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+        return res.status(401).json({ message: 'Credenciales incorrectas' });
+    }
+    const token = jwt.sign({ username }, 'secreto_jwt', { expiresIn: '1h' });
+    res.json({ message: 'Autenticación exitosa', token });
 });
+
+// Middleware de autenticación con JWT
+const authMiddleware = (req, res, next) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(403).json({ message: 'Acceso denegado' });
+
+    jwt.verify(token, 'secreto_jwt', (err, decoded) => {
+        if (err) return res.status(403).json({ message: 'Token inválido' });
+        req.user = decoded;
+        next();
+    });
+};
+
+// Endpoint protegido
+app.get('/secure-data', authMiddleware, (req, res) => {
+    res.json({ message: `Hola ${req.user.username}, accediste a datos protegidos` });
+});
+
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`API corriendo en el puerto ${PORT}`);
-});
+app.listen(PORT, () => console.log(`API corriendo en el puerto ${PORT}`));
